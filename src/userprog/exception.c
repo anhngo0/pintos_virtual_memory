@@ -4,6 +4,7 @@
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "vm/page.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -148,14 +149,28 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
+  bool load = false;
+  if(not_present)
+  {
+   /*Check the faulting address in Supplementary table*/
+   struct spt_entry *entry = spt_find_entry(fault_addr);
+   if(entry != NULL)
+   {  
+   /*allocate and load file*/
+     load = page_load(entry);
+   }
+  }
+
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
      which fault_addr refers. */
-  printf ("Page fault at %p: %s error %s page in %s context.\n",
-          fault_addr,
-          not_present ? "not present" : "rights violation",
-          write ? "writing" : "reading",
-          user ? "user" : "kernel");
-  kill (f);
+   //   if(!load){
+        printf ("Page fault at %p: %s error %s page in %s context.\n",
+                fault_addr,
+                not_present ? "not present" : "rights violation",
+                write ? "writing" : "reading",
+                user ? "user" : "kernel");
+      kill(f);
+   //   }
 }
 

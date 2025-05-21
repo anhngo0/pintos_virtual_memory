@@ -10,6 +10,7 @@
 void
 test_alarm_zero (void) 
 {
+  printf("HO VA TEN: NGO NHT ANH -202100073");
   timer_sleep (0);
   pass ();
 }

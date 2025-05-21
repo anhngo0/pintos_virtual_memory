@@ -1,0 +1,43 @@
+# Ignore build files
+*.o
+*.d
+*.out
+*.so
+*.a
+*.bin
+*.hex
+*.elf
+*.map
+
+# Pintos-specific build directories
+*.img
+*.swp
+*.sw?
+*.dsk
+*.swap
+/build/
+*/build/
+src/threads/build/
+src/userprog/build/
+src/vm/build/
+src/filesys/build/
+src/tests/build/
+
+# Executables and binaries
+src/examples/*.o
+src/examples/*.out
+src/examples/*.bin
+src/userprog/*.o
+src/userprog/*.bin
+src/userprog/*.out
+
+# IDE/Editor settings
+*.log
+*.tmp
+*.DS_Store
+*.vscode/
+*.idea/
+
+# Temporary files
+*~
+*.class

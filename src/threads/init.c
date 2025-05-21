@@ -37,6 +37,9 @@
 #include "filesys/filesys.h"
 #include "filesys/fsutil.h"
 #endif
+#ifdef VM
+#include "vm/swap.h"
+#endif
 
 /* Page directory with kernel mappings only. */
 uint32_t *init_page_dir;
@@ -102,9 +105,10 @@ main (void)
   /* Segmentation. */
 #ifdef USERPROG
   tss_init ();
-  gdt_init ();
-#endif
+  gdt_init (); 
 
+#endif
+ 
   /* Initialize interrupt handlers. */
   intr_init ();
   timer_init ();
@@ -395,6 +399,7 @@ locate_block_devices (void)
   locate_block_device (BLOCK_SCRATCH, scratch_bdev_name);
 #ifdef VM
   locate_block_device (BLOCK_SWAP, swap_bdev_name);
+  swap_init();
 #endif
 }
 
