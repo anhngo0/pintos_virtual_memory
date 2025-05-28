@@ -120,6 +120,7 @@ palloc_free_multiple (void *pages, size_t page_cnt)
   struct pool *pool;
   size_t page_idx;
 
+  /*non-page-aligned pointer, i.e., the address you passed to palloc_free_page() is not aligned to 4KB*/
   ASSERT (pg_ofs (pages) == 0);
   if (pages == NULL || page_cnt == 0)
     return;

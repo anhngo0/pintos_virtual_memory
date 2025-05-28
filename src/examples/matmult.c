@@ -26,7 +26,7 @@
   4,096   196,608 kB
   8,192   786,432 kB
  16,384 3,145,728 kB */
-#define DIM 8192
+#define DIM 512
 
 int A[DIM][DIM];
 int B[DIM][DIM];
@@ -36,7 +36,6 @@ int
 main (void)
 {
   int i, j, k;
-  printf("start: matmult is running ");
 
   /* Initialize the matrices. */
   for (i = 0; i < DIM; i++)
@@ -52,7 +51,6 @@ main (void)
     for (j = 0; j < DIM; j++)
       for (k = 0; k < DIM; k++)
 	C[i][j] += A[i][k] * B[k][j];
-  printf("end: matmult over ");
   /* Done. */
   exit (C[DIM - 1][DIM - 1]);
 }

@@ -123,6 +123,7 @@ kill (struct intr_frame *f)
 static void
 page_fault (struct intr_frame *f) 
 {
+   printf("page fault start\n");
   bool not_present;  /* True: not-present page, false: writing r/o page. */
   bool write;        /* True: access was write, false: access was read. */
   bool user;         /* True: access by user, false: access by kernel. */
@@ -143,7 +144,6 @@ page_fault (struct intr_frame *f)
 
   /* Count page faults. */
   page_fault_cnt++;
-
   /* Determine cause. */
   not_present = (f->error_code & PF_P) == 0;
   write = (f->error_code & PF_W) != 0;
@@ -154,23 +154,41 @@ page_fault (struct intr_frame *f)
   {
    /*Check the faulting address in Supplementary table*/
    struct spt_entry *entry = spt_find_entry(fault_addr);
+   
    if(entry != NULL)
    {  
    /*allocate and load file*/
+   // printf("start loading page into %p\n", entry->page_addr);
+   printf("file length: %d, offset: %d\n", file_length(entry->f_info.f), entry->f_info.offset);   
+   // printf("page_fault(): read file data is: %d \n", entry->f_info.read_bytes);
+   // printf("page_fault(): read bytes in thread struct is: %d \n", entry->f_info.read_bytes );
+
      load = page_load(entry);
+     
    }
+  } else printf("page_fault(): not present\n");
+
+  if(write ) {
+   printf("page_fault(): write is true\n");
+  } else {printf("page_fault(): write is false\n");
+  }
+
+  if(user ) {
+   printf("page_fault(): user is true\n");
+  } else {printf("page_fault(): user is false\n");
+
   }
 
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
      which fault_addr refers. */
-   //   if(!load){
+     if(!load){
         printf ("Page fault at %p: %s error %s page in %s context.\n",
                 fault_addr,
                 not_present ? "not present" : "rights violation",
                 write ? "writing" : "reading",
                 user ? "user" : "kernel");
       kill(f);
-   //   }
+     }
 }
 

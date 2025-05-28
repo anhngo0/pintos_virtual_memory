@@ -97,7 +97,8 @@ struct thread
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
     struct hash page_table;
-    struct file*file;
+    struct file* executable_file; /*keep the file open til the last possible moment*/
+    int exit_status; /*status when exit user program*/
 #endif
 
     /* Owned by thread.c. */

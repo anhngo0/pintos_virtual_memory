@@ -38,7 +38,7 @@ struct spt_entry
 };
 
 void spt_init(struct hash* page_table);  
-void create_spt_entry(void *upage, struct file *f, off_t offset,    
+void create_spt_entry(void *upage, struct file *f, off_t offset, enum page_type type,   
                     size_t read_bytes, size_t write_bytes, bool writeable);
 struct spt_entry *spt_find_entry(void *upage);
 void spt_remove(struct hash* spt);

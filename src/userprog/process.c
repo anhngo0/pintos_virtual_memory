@@ -22,7 +22,7 @@
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
-// static void push_stack(void **esp, char* file_name);
+static void push_stack(void **esp, char* file_name);
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
@@ -66,9 +66,9 @@ start_process (void *file_name_)
   bool success;
 
   //Send only filename in load function
-  char *org_args, *saveptr;
-  org_args = (char *) malloc(128);
-  strlcpy(org_args, file_name,strlen(file_name)+1);
+  char *original_file, *saveptr;
+  original_file = (char *) malloc(128);
+  strlcpy(original_file, file_name,strlen(file_name)+1);
   file_name = strtok_r( file_name, " ", &saveptr);
   
   //Initialize supplementary page table
@@ -96,11 +96,68 @@ start_process (void *file_name_)
   arguments on the stack in the form of a `struct intr_frame',
   we just point the stack pointer (%esp) to our stack frame
   and jump to it. */
-  free(org_args);
+  push_stack(&if_.esp, original_file);
+  free(original_file);
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   
   NOT_REACHED ();
 }
+
+/*push argv and argc into stack*/
+static void push_stack(void **esp, char *file_name) {
+  char *token, *save_ptr;
+  char *argv[64];  // max 64 args
+  int argc = 0;
+
+  // Copy file_name into a mutable buffer
+  char *str = malloc(strlen(file_name) + 1);
+  strlcpy(str, file_name, strlen(file_name) + 1);
+
+  // Tokenize into argv[]
+  for (token = strtok_r(str, " ", &save_ptr); token != NULL;
+       token = strtok_r(NULL, " ", &save_ptr)) {
+    argv[argc++] = token;
+  }
+
+  // Push argument strings onto the stack (right to left)
+  for (int i = argc - 1; i >= 0; i--) {
+    *esp -= strlen(argv[i]) + 1;
+    memcpy(*esp, argv[i], strlen(argv[i]) + 1);
+    argv[i] = *esp;  // Save actual location
+  }
+
+  // Word-align the stack
+  *esp = (void *)((uintptr_t)(*esp) & 0xfffffffc);
+
+  // Push null sentinel
+  *esp -= sizeof(char *);
+  *(char **)*esp = NULL;
+
+  // Push addresses of argv[i]
+  for (int i = argc - 1; i >= 0; i--) {
+    *esp -= sizeof(char *);
+    memcpy(*esp, &argv[i], sizeof(char *));
+  }
+
+  // Save argv address
+  char **argv_addr = *esp;
+
+  // Push argv
+  *esp -= sizeof(char **);
+  memcpy(*esp, &argv_addr, sizeof(char **));
+
+  // Push argc
+  *esp -= sizeof(int);
+  memcpy(*esp, &argc, sizeof(int));
+
+  // Push fake return address
+  *esp -= sizeof(void *);
+  *(void **)*esp = NULL;
+
+  free(str);
+}
+
+
 
 /* Waits for thread TID to die and returns its exit status.  If
    it was terminated by the kernel (i.e. killed due to an
@@ -121,6 +178,7 @@ process_wait (tid_t child_tid UNUSED)
 void
 process_exit (void)
 {
+  printf("process exit\n");
   struct thread *cur = thread_current ();
   uint32_t *pd;
 
@@ -140,6 +198,18 @@ process_exit (void)
       // spt_remove(&cur->page_table);
       pagedir_activate (NULL);
       pagedir_destroy (pd);
+
+      /*allow write and close executable file*/
+      if( cur->executable_file != NULL) {
+        file_allow_write( cur->executable_file);
+        file_close(cur->executable_file);
+        cur->executable_file = NULL;
+      }
+
+      /*remove supplemental page table*/
+      spt_remove(&cur->page_table);
+
+      
     }
     
 }
@@ -296,8 +366,11 @@ load (const char *file_name, void (**eip) (void), void **esp)
         case PT_SHLIB:
           goto done;
         case PT_LOAD:
+          printf("Loading segment: offset=%u, vaddr=%p, read=%u, zero=%u\n", 
+          phdr.p_offset, phdr.p_vaddr, phdr.p_filesz, phdr.p_memsz - phdr.p_filesz);
           if (validate_segment (&phdr, file)) 
             {
+              printf("validate segement success !\n");
               bool writable = (phdr.p_flags & PF_W) != 0;
               uint32_t file_page = phdr.p_offset & ~PGMASK;
               uint32_t mem_page = phdr.p_vaddr & ~PGMASK;
@@ -320,7 +393,10 @@ load (const char *file_name, void (**eip) (void), void **esp)
                 }
               if (!load_segment (file, file_page, (void *) mem_page,
                                  read_bytes, zero_bytes, writable))
-                goto done;
+                                 {
+                                  printf("load_segment() error\n");
+                                   goto done; 
+                                 }
             }
           else
             goto done;
@@ -339,7 +415,13 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+  // file_close (file);
+
+  //close file here will result to corrupt file when we do lazy-loading
+  //instead, we deny set it to read_only
+  t->executable_file = file;
+  file_deny_write(file);
+
   return success;
 }
 
@@ -349,49 +431,71 @@ bool install_page (void *upage, void *kpage, bool writable);
 
 /* Checks whether PHDR describes a valid, loadable segment in
    FILE and returns true if so, false otherwise. */
-static bool
-validate_segment (const struct Elf32_Phdr *phdr, struct file *file) 
-{
-  /* p_offset and p_vaddr must have the same page offset. */
-  if ((phdr->p_offset & PGMASK) != (phdr->p_vaddr & PGMASK)) 
-    return false; 
-
-  /* p_offset must point within FILE. */
-  if (phdr->p_offset > (Elf32_Off) file_length (file)) 
-    return false;
-
-  /* p_memsz must be at least as big as p_filesz. */
-  if (phdr->p_memsz < phdr->p_filesz) 
-    return false; 
-
-  /* The segment must not be empty. */
-  if (phdr->p_memsz == 0)
-    return false;
-  
-  /* The virtual memory region must both start and end within the
-     user address space range. */
-  if (!is_user_vaddr ((void *) phdr->p_vaddr))
-    return false;
-  if (!is_user_vaddr ((void *) (phdr->p_vaddr + phdr->p_memsz)))
-    return false;
-
-  /* The region cannot "wrap around" across the kernel virtual
-     address space. */
-  if (phdr->p_vaddr + phdr->p_memsz < phdr->p_vaddr)
-    return false;
-
-  /* Disallow mapping page 0.
-     Not only is it a bad idea to map page 0, but if we allowed
-     it then user code that passed a null pointer to system calls
-     could quite likely panic the kernel by way of null pointer
-     assertions in memcpy(), etc. */
-  if (phdr->p_vaddr < PGSIZE)
-    return false;
-
-  /* It's okay. */
-  return true;
-}
-
+   static bool
+   validate_segment (const struct Elf32_Phdr *phdr, struct file *file) 
+   {
+     /* p_offset and p_vaddr must have the same page offset. */
+     if ((phdr->p_offset & PGMASK) != (phdr->p_vaddr & PGMASK)) 
+     {
+       printf("p_offset and p_vaddr must have the same page offset\n");
+       return false; 
+     }
+   
+     /* p_offset must point within FILE. */
+     if (phdr->p_offset > (Elf32_Off) file_length (file)) 
+     {
+       printf("p_offset must point within FILE.\n");
+       return false;
+     }
+   
+     /* p_memsz must be at least as big as p_filesz. */
+     if (phdr->p_memsz < phdr->p_filesz) 
+       { printf("p_memsz must be at least as big as p_filesz.\n");
+         return false; }
+   
+     /* The segment must not be empty. */
+     if (phdr->p_memsz == 0)
+     {
+       printf("The segment must not be empty.\n");
+       return false;
+     }
+     
+     /* The virtual memory region must both start and end within the
+        user address space range. */
+     if (!is_user_vaddr ((void *) phdr->p_vaddr))
+     {
+       printf("The virtual memory region must both start and end within the user address space range.\n");
+       return false;
+     }
+     if (!is_user_vaddr ((void *) (phdr->p_vaddr + phdr->p_memsz)))
+       {
+         printf("The virtual memory region must both start and end within the user address space range.\n");
+         return false;
+       }
+     /* The region cannot "wrap around" across the kernel virtual
+        address space. */
+     if (phdr->p_vaddr + phdr->p_memsz < phdr->p_vaddr)
+     {
+       printf("The region cannot 'wrap around' across the kernel virtual address space.\n");
+       return false;
+     }
+   
+     /* Disallow mapping page 0.
+        Not only is it a bad idea to map page 0, but if we allowed
+        it then user code that passed a null pointer to system calls
+        could quite likely panic the kernel by way of null pointer
+        assertions in memcpy(), etc. */
+     if (phdr->p_vaddr < PGSIZE)
+     {
+       printf("Disallow mapping page 0\n");
+       return false;
+     }
+   
+     /* It's okay. */
+     return true;
+   }
+   
+   
 /* Loads a segment starting at offset OFS in FILE at address
    UPAGE.  In total, READ_BYTES + ZERO_BYTES bytes of virtual
    memory are initialized, as follows:
@@ -456,7 +560,10 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-      create_spt_entry(upage, thread_current()->file, ofs, page_read_bytes, page_zero_bytes, writable);
+      // printf("page_read_bytes is: %d\n", page_read_bytes);
+      // printf("pages_zero_bytes is: %d\n", page_zero_bytes);   
+        
+      create_spt_entry(upage, file, ofs,VM_BIN, page_read_bytes, page_zero_bytes, writable);
 
       /* Advance. */
       read_bytes -= page_read_bytes;
@@ -472,6 +579,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 static bool
 setup_stack (void **esp) 
 {
+  printf("setup_stack(): setup_stack start\n");
   uint8_t *kpage;
   bool success = false;
 
@@ -502,6 +610,7 @@ setup_stack (void **esp)
       }
       else
         {
+          printf("setup_stack() error ! map kernel with virtual failed\n");
           palloc_free_page (kpage);
           free(entry);
         }
