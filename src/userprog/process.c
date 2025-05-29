@@ -75,7 +75,7 @@ start_process (void *file_name_)
    spt_init(&thread_current()->page_table);
   
   /* Initialize interrupt frame and load executable. */
-  printf("file name %s\n", file_name);
+  // printf("file name %s\n", file_name);
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
@@ -178,7 +178,7 @@ process_wait (tid_t child_tid UNUSED)
 void
 process_exit (void)
 {
-  printf("process exit\n");
+  // printf("process exit\n");
   struct thread *cur = thread_current ();
   uint32_t *pd;
 
@@ -366,11 +366,11 @@ load (const char *file_name, void (**eip) (void), void **esp)
         case PT_SHLIB:
           goto done;
         case PT_LOAD:
-          printf("Loading segment: offset=%u, vaddr=%p, read=%u, zero=%u\n", 
-          phdr.p_offset, phdr.p_vaddr, phdr.p_filesz, phdr.p_memsz - phdr.p_filesz);
+           /* printf("Loading segment: offset=%u, vaddr=%p, read=%u, zero=%u\n", 
+          phdr.p_offset, phdr.p_vaddr, phdr.p_filesz, phdr.p_memsz - phdr.p_filesz); */
           if (validate_segment (&phdr, file)) 
             {
-              printf("validate segement success !\n");
+              // printf("validate segement success !\n");
               bool writable = (phdr.p_flags & PF_W) != 0;
               uint32_t file_page = phdr.p_offset & ~PGMASK;
               uint32_t mem_page = phdr.p_vaddr & ~PGMASK;
@@ -394,7 +394,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
               if (!load_segment (file, file_page, (void *) mem_page,
                                  read_bytes, zero_bytes, writable))
                                  {
-                                  printf("load_segment() error\n");
+                                  // printf("load_segment() error\n");
                                    goto done; 
                                  }
             }
@@ -574,21 +574,22 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   return true;
 }
 
-/* Create a minimal stack by mapping a zeroed page at the top of
+/* Create a minimal stack by ma(size_t) (PHYS_BASE - pg_round_down(upage)) > MAX_STACKpping a zeroed page at the top of
    user virtual memory. */
 static bool
 setup_stack (void **esp) 
 {
-  printf("setup_stack(): setup_stack start\n");
+  // printf("setup_stack(): setup_stack start\n");
   uint8_t *kpage;
   bool success = false;
+  
+  uint8_t *upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
 
-  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+  // kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+  kpage = frame_allocate (PAL_USER | PAL_ZERO, upage);
   if (kpage != NULL) 
     {
-      uint8_t *upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
-
-      /*create spt entry, that sould be swappable*/
+      /*create spt entry, that should be swappable*/
       struct spt_entry *entry = (struct SPT *)malloc(sizeof(struct spt_entry));
       entry->is_pinned = true;
       entry->page_addr = pg_round_down(upage);
@@ -596,7 +597,8 @@ setup_stack (void **esp)
       entry->writeable = true;
       entry->type = VM_ANON;
 
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
+      /*mapping at least 4MB virtual to frame*/
+      success = install_page (upage, kpage, true);
       
       if (success)
       {
@@ -611,7 +613,8 @@ setup_stack (void **esp)
       else
         {
           printf("setup_stack() error ! map kernel with virtual failed\n");
-          palloc_free_page (kpage);
+          // palloc_free_page (kpage);
+          free_frame (kpage);
           free(entry);
         }
     }

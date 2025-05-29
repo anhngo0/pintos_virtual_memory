@@ -123,7 +123,7 @@ kill (struct intr_frame *f)
 static void
 page_fault (struct intr_frame *f) 
 {
-   printf("page fault start\n");
+   // printf("page fault start\n");
   bool not_present;  /* True: not-present page, false: writing r/o page. */
   bool write;        /* True: access was write, false: access was read. */
   bool user;         /* True: access by user, false: access by kernel. */
@@ -153,31 +153,37 @@ page_fault (struct intr_frame *f)
   if(not_present)
   {
    /*Check the faulting address in Supplementary table*/
-   struct spt_entry *entry = spt_find_entry(fault_addr);
+   struct thread *cur = thread_current();
+   struct spt_entry *entry = spt_find_entry(cur, fault_addr);
    
    if(entry != NULL)
    {  
    /*allocate and load file*/
    // printf("start loading page into %p\n", entry->page_addr);
-   printf("file length: %d, offset: %d\n", file_length(entry->f_info.f), entry->f_info.offset);   
+   // printf("file length: %d, offset: %d\n", file_length(entry->f_info.f), entry->f_info.offset);   
    // printf("page_fault(): read file data is: %d \n", entry->f_info.read_bytes);
    // printf("page_fault(): read bytes in thread struct is: %d \n", entry->f_info.read_bytes );
 
      load = page_load(entry);
      
    }
-  } else printf("page_fault(): not present\n");
+  } 
+  /*check if fault adddr is close enough to esp*/
+  else if(fault_addr >= f->esp - 32 ){
+   load = stack_growth(fault_addr);
+  } 
+  else printf("page_fault(): not present\n");
 
-  if(write ) {
-   printf("page_fault(): write is true\n");
-  } else {printf("page_fault(): write is false\n");
-  }
+//   if(write ) {
+//    printf("page_fault(): write is true\n");
+//   } else {printf("page_fault(): write is false\n");
+//   }
 
-  if(user ) {
-   printf("page_fault(): user is true\n");
-  } else {printf("page_fault(): user is false\n");
+//   if(user ) {
+//    printf("page_fault(): user is true\n");
+//   } else {printf("page_fault(): user is false\n");
 
-  }
+//   }
 
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to

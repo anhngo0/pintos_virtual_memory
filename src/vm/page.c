@@ -6,6 +6,7 @@
 #include "userprog/pagedir.h"	
 #include "userprog/process.h"
 #include "filesys/file.h"
+#include "frame.h"
 #include <string.h>
 
 static unsigned page_hash_func(const struct hash_elem *a, void *aux UNUSED);
@@ -38,7 +39,7 @@ page_less_func (const struct hash_elem *a,
 static void spt_remove_entry(struct hash_elem *e, void *aux UNUSED)
 {
 	struct spt_entry *entry = hash_entry(e, struct spt_entry, helem);
-	free_frames(entry->isLoaded, entry->page_addr);
+	free_frame( entry->frame_addr);
 	free(entry);
 }
 
@@ -57,6 +58,7 @@ void create_spt_entry(void *upage, struct file *f, off_t offset,
     new_spt_entry->writeable = writeable;
 	new_spt_entry->is_pinned = false;
     new_spt_entry->type = type;
+    new_spt_entry->index_swap = -1; /*not in swap*/
 
     /* use file_reopen() to create new referenec to the same file
     , so we can close the original in process_exit() without effecting*/
@@ -69,12 +71,11 @@ void create_spt_entry(void *upage, struct file *f, off_t offset,
 }
 
 /*find and return an entry of spt based on page */
-struct spt_entry *spt_find_entry (void *upage)
+struct spt_entry *spt_find_entry (struct thread*t, void *upage)
 {
   struct spt_entry entry;
   entry.page_addr = pg_round_down(upage);
-  struct thread *thread_cur = thread_current();
-  struct hash_elem *e = hash_find (&thread_cur->page_table, &entry.helem);
+  struct hash_elem *e = hash_find (&t->page_table, &entry.helem);
   if (e != NULL) {
     return hash_entry(e, struct spt_entry, helem);
     }
@@ -95,24 +96,18 @@ bool page_load(struct spt_entry* entry)
     {
     case VM_BIN: /*executable file is loaded*/
     {
-       printf("VM_BIN CASE\n");
+    //    printf("VM_BIN CASE\n");
         return load_from_file(entry);
-    }
-
-    case VM_FILE: /*memory-mapped file is loaded*/
-    {
-        printf("VM_FILE CASE\n");
-        return load_from_file(entry);
-    }    
+    } 
     
     case VM_ANON: /*pages in */
     {
-        printf("VM_ANON CASE");
+        // printf("VM_ANON CASE");
         return load_from_disk(entry);
     }
 
     default:
-        printf("No entry's type is provided, page load error");
+        // printf("No entry's type is provided, page load error");
         return false;
     }
 }
@@ -121,7 +116,7 @@ bool page_load(struct spt_entry* entry)
 bool load_from_file(struct spt_entry* entry)
 {
     /*allocate a frame*/
-    uint8_t *frame = palloc_get_page(PAL_USER);
+    uint8_t *frame = frame_allocate(PAL_USER, entry->page_addr);
     if(frame == NULL) 
     {
         printf("error at load_in_file(): there is no free frame\n");
@@ -135,16 +130,18 @@ bool load_from_file(struct spt_entry* entry)
     {
         if (entry->f_info.f == NULL) {
             printf("Error: file pointer is NULL in load_from_file()\n");
-            palloc_free_page(&frame);
+            // palloc_free_page(&frame);
+            free_frame(&frame);
             return false;
         } 
-        printf("file length: %d, offset: %d\n", file_length(entry->f_info.f), entry->f_info.offset);   
+        // printf("file length: %d, offset: %d\n", file_length(entry->f_info.f), entry->f_info.offset);   
         size_t file_read_data = file_read_at(entry->f_info.f, frame, entry->f_info.read_bytes,
             entry->f_info.offset);
         
         if(file_read_data != (int) entry->f_info.read_bytes){
                 printf("read not enough file in load_from_file()\n");
-                palloc_free_page(&frame);
+                // palloc_free_page(&frame);
+                free_frame(&frame);
             }
     }
 
@@ -161,7 +158,8 @@ bool load_from_file(struct spt_entry* entry)
     /*free page in case failed*/
     if(!is_install_success) {
         printf("map user virtual address to kernel virtual address failed at line 131 file vm/page.c");
-        palloc_free_page(&frame);
+        // palloc_free_page(&frame);
+        free_frame(&frame);
         entry->isLoaded = false;
     }
     // printf("install_sucess\n");
@@ -173,12 +171,13 @@ bool load_from_file(struct spt_entry* entry)
 bool load_from_disk(struct spt_entry* entry)
 {
     /*allocate a frame*/
-    void *frame = palloc_get_page(PAL_USER);
+    // void *frame = palloc_get_page(PAL_USER);
+    void *frame = frame_allocate(PAL_USER, entry->page_addr);
     if(frame == NULL) return false;
 
     entry->is_pinned = true; /*avoid page's eviction while load data*/
 
-    swap_in(entry->ind_swp, frame);
+    swap_in(entry->index_swap, frame);
 
     /*Adds a mapping from user virtual address UPAGE to kernel
         virtual address KPAGE to the page table */
@@ -189,9 +188,60 @@ bool load_from_disk(struct spt_entry* entry)
     /*free page in case failed*/
     if(!is_install_success) {
         printf("map user virtual address to kernel virtual address failed at line 131 file vm/page.c");
-        palloc_free_page(&frame);
+        // palloc_free_page(&frame);
+        free_frame(&frame);
         entry->isLoaded = false;
     }
     entry->is_pinned = false; /* enable eviction after this*/
     return is_install_success;   
+}
+
+bool stack_growth(void *fault_addr){
+    void *upage = pg_round_down(fault_addr);
+
+    /* limit the stack in 8MB down from PHYS_BASE*/
+    if((size_t) (PHYS_BASE - upage) >= MAX_STACK || !is_user_vaddr(fault_addr))
+        return false;
+
+    struct thread* cur = thread_current();
+    // Check if the page already exists in supplemental page table
+    struct spt_entry *existing_entry = spt_find_entry(cur,upage);
+    if (existing_entry != NULL) {
+        return false;  // Already exists; don't grow again
+    }
+
+    /*allocate a frame*/
+    // void *frame = palloc_get_page(PAL_USER | PAL_ZERO) ;
+    void *frame = frame_allocate(PAL_USER | PAL_ZERO, upage ) ;
+    if(frame == NULL) return false;
+
+    /*crate a new entry */
+    struct spt_entry *entry = (struct spt_entry *) malloc(sizeof(struct spt_entry));
+    if (entry == NULL) {
+        return false;
+    }
+    entry->is_pinned = true; /*avoid page's eviction while load data*/
+    entry->page_addr = upage;
+    entry->frame_addr = frame;
+    entry->writeable = true;
+    entry->isLoaded = true;
+    entry->type = VM_ANON;
+    entry->index_swap = -1;  /*Not swapped */
+    memset(&entry->f_info, 0, sizeof(struct file_info));  // Clear exec info
+
+    if (!install_page(upage, frame, entry->writeable)) {
+        printf("stack_growth(): install_page failed\n");
+        // palloc_free_page(frame);
+        free_frame(frame);
+        free(entry);
+        return false;
+    }
+
+    entry->is_pinned = false;
+
+    /*Insert into supplemental page table*/ 
+    struct thread *t = thread_current();
+    hash_insert(&t->page_table, &entry->helem);
+
+    return true;
 }

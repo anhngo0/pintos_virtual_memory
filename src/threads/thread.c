@@ -285,7 +285,8 @@ thread_exit (void)
 #ifdef USERPROG
   process_exit ();
 #endif
-
+exception_print_stats();
+thread_print_stats();
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
