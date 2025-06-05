@@ -178,6 +178,7 @@ bool load_from_disk(struct spt_entry* entry)
     entry->is_pinned = true; /*avoid page's eviction while load data*/
 
     swap_in(entry->index_swap, frame);
+    entry->type = VM_BIN;
 
     /*Adds a mapping from user virtual address UPAGE to kernel
         virtual address KPAGE to the page table */
@@ -242,6 +243,7 @@ bool stack_growth(void *fault_addr){
     /*Insert into supplemental page table*/ 
     struct thread *t = thread_current();
     hash_insert(&t->page_table, &entry->helem);
+    printf("stack growth\n");
 
     return true;
 }

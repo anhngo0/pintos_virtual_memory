@@ -5,6 +5,28 @@ pintos -f -q
 pintos -p ../../examples/matmult -a matmult -- -q
 pintos -- run matmult
 
+pintos -- run --swap-size=4 matmult 
+#provide swap slot 4MB
+
+use the command 
+    pintos-mkdisk swap.dsk --swap-size=n 
+to create an disk named "swap.dsk" that contains 
+a n-MB swap partition. Afterward, "swap.dsk"
+will automatically be attached as an extra disk when you run pintos
+
+
+pintos-mkdisk filesys.dsk --filesys-size=2
+ pintos-mkdisk swap.dsk --swap-size=4
+pintos -f -q
+pintos -p ../../examples/matmult -a matmult -- -q
+pintos -- run matmult
+
+pintos-mkdisk filesys.dsk --filesys-size=10
+ pintos-mkdisk swap.dsk --swap-size=6
+pintos -f -q
+pintos -p ../../examples/matmult -a matmult -- -q
+pintos -- run matmult
+
  your file has read_bytes = 6000 (crosses 2 pages):
 
     First page: offset = 0, read = 4096

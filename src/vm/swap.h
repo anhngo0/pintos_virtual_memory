@@ -5,15 +5,19 @@
 #include "devices/block.h"
 #include <bitmap.h>
 #include "threads/vaddr.h"
+#include "userprog/exception.h"
 
-#define SWAP_DISK_SECTOR   PGSIZE/BLOCK_SECTOR_SIZE
+// #define SECTORS_PER_PAGE   PGSIZE/BLOCK_SECTOR_SIZE
+#define SECTORS_PER_PAGE   8
+
+
 
 // The block where the swapped pages are read
 // or written from/to
  static struct block *swap_block;
  static struct lock swap_lock; 
 
-// A bitmap indicate whether page is available for swapping a page or not
+// track free/used slots in swap
 static struct bitmap *swap_bitmap; 
 
 void swap_init();
