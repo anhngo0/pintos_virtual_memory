@@ -111,16 +111,16 @@ void *evict_frame(void) {
     }
 
     if (spt_entry->isLoaded) {
-        // If the page was allocated but only zeroes, we can skip swap
-        if (spt_entry->type == VM_ANON && spt_entry->f_info.f == NULL && spt_entry->f_info.read_bytes == 0) {
-            // No need to swap out; just mark it as not loaded
-            spt_entry->isLoaded = false;
-        } else {
+        // // If the page was allocated but only zeroes, we can skip swap
+        // if (spt_entry->type == VM_ANON && spt_entry->f_info.f == NULL && spt_entry->f_info.read_bytes == 0) {
+        //     // No need to swap out; just mark it as not loaded
+        //     spt_entry->isLoaded = false;
+        // } else {
             // Swap it out
             spt_entry->index_swap = swap_out(victim->frame_addr);
             spt_entry->type = VM_ANON;
             spt_entry->isLoaded = false;
-        }
+        // }
     }
 
     pagedir_clear_page(victim->owner->pagedir, spt_entry->page_addr);
